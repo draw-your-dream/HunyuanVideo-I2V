@@ -15,6 +15,11 @@ except ImportError:
     _flash_attn_forward = None
 
 
+try:
+    from sageattention import sageattn
+except ImportError:
+    sageattn = None
+
 MEMORY_LAYOUT = {
     "flash": (
         lambda x: x.view(x.shape[0] * x.shape[1], *x.shape[2:]),
@@ -105,19 +110,32 @@ def attention(
             q, k, v, attn_mask=attn_mask, dropout_p=drop_rate, is_causal=causal
         )
     elif mode == "flash":
-        x = flash_attn_varlen_func(
-            q,
-            k,
-            v,
-            cu_seqlens_q,
-            cu_seqlens_kv,
-            max_seqlen_q,
-            max_seqlen_kv,
-        )
-        # x with shape [(bxs), a, d]
-        x = x.view(
-            batch_size, max_seqlen_q, x.shape[-2], x.shape[-1]
-        )  # reshape x to [b, s, a, d]
+        if q.size(-3) > 50000 and sageattn != None:
+                q, k, v = q.transpose(2, 1).contiguous(), k.transpose(2, 1).contiguous(), v.transpose(2, 1).contiguous()
+                q1 = q[:, :, :cu_seqlens_q[1], :]
+                q2 = q[:, :, cu_seqlens_q[1]:, :]
+                k1 = k[:, :, :cu_seqlens_q[1], :]
+                k2 = k[:, :, cu_seqlens_kv[1]:, :]
+                v1 = v[:, :, :cu_seqlens_kv[1], :]
+                v2 = v[:, :, cu_seqlens_kv[1]:, :]
+                x2 = F.scaled_dot_product_attention(q2, k2, v2)
+                x1 = sageattn(q1, k1, v1)
+                x = torch.cat((x1, x2), dim=-2).transpose(2, 1).contiguous()
+                x = x.view(batch_size, max_seqlen_q, x.shape[-2], x.shape[-1])
+        else:
+            x = flash_attn_varlen_func(
+                q,
+                k,
+                v,
+                cu_seqlens_q,
+                cu_seqlens_kv,
+                max_seqlen_q,
+                max_seqlen_kv,
+            )
+            # x with shape [(bxs), a, d]
+            x = x.view(
+                batch_size, max_seqlen_q, x.shape[-2], x.shape[-1]
+            )  # reshape x to [b, s, a, d]
     elif mode == "vanilla":
         scale_factor = 1 / math.sqrt(q.size(-1))
 
