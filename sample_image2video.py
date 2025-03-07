@@ -15,6 +15,8 @@ def main():
     models_root_path = Path(args.model_base)
     if not models_root_path.exists():
         raise ValueError(f"`models_root` not exists: {models_root_path}")
+
+    attention_mode = args.attention_mode if hasattr(args, 'attention_mode') else "sdpa"
     
     # Create save folder to save the samples
     save_path = args.save_path if args.save_path_suffix=="" else f'{args.save_path}_{args.save_path_suffix}'
@@ -22,7 +24,7 @@ def main():
         os.makedirs(save_path, exist_ok=True)
 
     # Load models
-    hunyuan_video_sampler = HunyuanVideoSampler.from_pretrained(models_root_path, args=args)
+    hunyuan_video_sampler = HunyuanVideoSampler.from_pretrained(models_root_path, args=args, attention_mode = attention_mode)
     
     # Get the updated args
     args = hunyuan_video_sampler.args

@@ -6,11 +6,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from importlib.metadata import version
 
-
 def clear_list(l):
     for i in range(len(l)):
         l[i] = None
-
 
 try:
     import flash_attn
@@ -28,8 +26,6 @@ except ImportError:
 
 try:
     from sageattention import sageattn_varlen
-
-
     def sageattn_varlen_wrapper(
             q,
             k,
@@ -38,33 +34,30 @@ try:
             cu_seqlens_kv,
             max_seqlen_q,
             max_seqlen_kv,
-    ):
+        ):
         return sageattn_varlen(q, k, v, cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv)
 except ImportError:
     sageattn_varlen_wrapper = None
 
 try:
     from sageattention import sageattn
-
-
     @torch.compiler.disable()
     def sageattn_wrapper(
             qkv_list,
             attention_length
-    ):
-        q, k, v = qkv_list
-        padding_length = q.shape[1] - attention_length
-        q = q[:, :attention_length, :, :]
-        k = k[:, :attention_length, :, :]
-        v = v[:, :attention_length, :, :]
+        ):
+        q,k, v = qkv_list
+        padding_length = q.shape[1] -attention_length
+        q = q[:, :attention_length, :, : ]
+        k = k[:, :attention_length, :, : ]
+        v = v[:, :attention_length, :, : ]
 
         o = sageattn(q, k, v, tensor_layout="NHD")
-        del q, k, v
+        del q, k ,v
         clear_list(qkv_list)
 
         if padding_length > 0:
-            o = torch.cat([o, torch.empty((o.shape[0], padding_length, *o.shape[-2:]), dtype=o.dtype, device=o.device)],
-                          1)
+            o = torch.cat([o, torch.empty( (o.shape[0], padding_length, *o.shape[-2:]), dtype= o.dtype, device=o.device  ) ], 1)
 
         return o
 
@@ -80,10 +73,11 @@ def get_attention_modes():
         ret.append("xformers")
     if sageattn_varlen_wrapper != None:
         ret.append("sage")
-    if sageattn != None and version("sageattention").startswith("2"):
+    if sageattn != None and version("sageattention").startswith("2") :
         ret.append("sage2")
 
     return ret
+
 
 
 MEMORY_LAYOUT = {
@@ -117,14 +111,13 @@ MEMORY_LAYOUT = {
     ),
 }
 
-
 @torch.compiler.disable()
 def sdpa_wrapper(
         qkv_list,
         attention_length
-):
-    q, k, v = qkv_list
-    padding_length = q.shape[2] - attention_length
+    ):
+    q,k, v = qkv_list
+    padding_length = q.shape[2] -attention_length
     q = q[:, :, :attention_length, :]
     k = k[:, :, :attention_length, :]
     v = v[:, :, :attention_length, :]
@@ -132,14 +125,13 @@ def sdpa_wrapper(
     o = F.scaled_dot_product_attention(
         q, k, v, attn_mask=None, is_causal=False
     )
-    del q, k, v
+    del q, k ,v
     clear_list(qkv_list)
 
     if padding_length > 0:
-        o = torch.cat([o, torch.empty((*o.shape[:2], padding_length, o.shape[-1]), dtype=o.dtype, device=o.device)], 2)
+        o = torch.cat([o, torch.empty( (*o.shape[:2], padding_length, o.shape[-1]), dtype= o.dtype, device=o.device  ) ], 2)
 
     return o
-
 
 def get_cu_seqlens(text_mask, img_len):
     """Calculate cu_seqlens_q, cu_seqlens_kv using text_mask and img_len
@@ -168,16 +160,16 @@ def get_cu_seqlens(text_mask, img_len):
 
 
 def attention(
-        qkv_list,
-        mode="flash",
-        drop_rate=0,
-        attn_mask=None,
-        causal=False,
-        cu_seqlens_q=None,
-        cu_seqlens_kv=None,
-        max_seqlen_q=None,
-        max_seqlen_kv=None,
-        batch_size=1,
+    qkv_list,
+    mode="flash",
+    drop_rate=0,
+    attn_mask=None,
+    causal=False,
+    cu_seqlens_q=None,
+    cu_seqlens_kv=None,
+    max_seqlen_q=None,
+    max_seqlen_kv=None,
+    batch_size=1,
 ):
     """
     Perform QKV self attention.
@@ -202,11 +194,11 @@ def attention(
         torch.Tensor: Output tensor after self attention with shape [b, s, ad]
     """
     pre_attn_layout, post_attn_layout = MEMORY_LAYOUT[mode]
-    q, k, v = qkv_list
+    q , k , v = qkv_list
     clear_list(qkv_list)
     del qkv_list
     padding_length = 0
-    # if attn_mask == None and mode == "sdpa":
+    # if attn_mask == None and mode == "sdpa": 
     #     padding_length  = q.shape[1] - cu_seqlens_q
     #     q = q[:, :cu_seqlens_q, ... ]
     #     k = k[:, :cu_seqlens_kv, ... ]
@@ -222,26 +214,26 @@ def attention(
         x = F.scaled_dot_product_attention(
             q, k, v, attn_mask=attn_mask, dropout_p=drop_rate, is_causal=causal
         )
-
+        
     elif mode == "sdpa":
         # if attn_mask is not None and attn_mask.dtype != torch.bool:
-        #     attn_mask = attn_mask.to(q.dtype)
+        #     attn_mask = attn_mask.to(q.dtype)            
         # x = F.scaled_dot_product_attention(
         #     q, k, v, attn_mask=attn_mask, dropout_p=drop_rate, is_causal=causal
         # )
-        assert attn_mask == None
+        assert attn_mask==None
         qkv_list = [q, k, v]
-        del q, k, v
-        x = sdpa_wrapper(qkv_list, cu_seqlens_q)
+        del q, k , v
+        x = sdpa_wrapper( qkv_list, cu_seqlens_q )
 
     elif mode == "xformers":
         x = memory_efficient_attention(
-            q, k, v, attn_bias=attn_mask
+            q, k, v , attn_bias= attn_mask
         )
 
     elif mode == "sage2":
         qkv_list = [q, k, v]
-        del q, k, v
+        del q, k , v
         x = sageattn_wrapper(qkv_list, cu_seqlens_q)
 
     elif mode == "sage":
@@ -257,7 +249,7 @@ def attention(
         # x with shape [(bxs), a, d]
         x = x.view(
             batch_size, max_seqlen_q, x.shape[-2], x.shape[-1]
-        )  # reshape x to [b, s, a, d]
+        )  # reshape x to [b, s, a, d]      
 
     elif mode == "flash":
         x = flash_attn_varlen_func(
@@ -282,7 +274,7 @@ def attention(
         if causal:
             # Only applied to self attention
             assert (
-                    attn_mask is None
+                attn_mask is None
             ), "Causal mask and attn_mask cannot be used together"
             temp_mask = torch.ones(b, a, s, s, dtype=torch.bool, device=q.device).tril(
                 diagonal=0
@@ -308,22 +300,21 @@ def attention(
     x = post_attn_layout(x)
     b, s, a, d = x.shape
     out = x.reshape(b, s, -1)
-    if padding_length > 0:
-        out = torch.cat(
-            [out, torch.empty((out.shape[0], padding_length, out.shape[2]), dtype=out.dtype, device=out.device)], 1)
+    if padding_length > 0 :
+        out = torch.cat([out, torch.empty( (out.shape[0], padding_length, out.shape[2]), dtype= out.dtype, device=out.device  ) ], 1)
 
     return out
 
 
 def parallel_attention(
-        hybrid_seq_parallel_attn,
-        q,
-        k,
-        v,
-        img_q_len,
-        img_kv_len,
-        cu_seqlens_q,
-        cu_seqlens_kv
+    hybrid_seq_parallel_attn,
+    q,
+    k,
+    v,
+    img_q_len,
+    img_kv_len,
+    cu_seqlens_q,
+    cu_seqlens_kv
 ):
     attn1 = hybrid_seq_parallel_attn(
         None,
@@ -332,16 +323,16 @@ def parallel_attention(
         v[:, :img_kv_len, :, :],
         dropout_p=0.0,
         causal=False,
-        joint_tensor_query=q[:, img_q_len:cu_seqlens_q[1]],
-        joint_tensor_key=k[:, img_kv_len:cu_seqlens_kv[1]],
-        joint_tensor_value=v[:, img_kv_len:cu_seqlens_kv[1]],
+        joint_tensor_query=q[:,img_q_len:cu_seqlens_q[1]],
+        joint_tensor_key=k[:,img_kv_len:cu_seqlens_kv[1]],
+        joint_tensor_value=v[:,img_kv_len:cu_seqlens_kv[1]],
         joint_strategy="rear",
     )
     if flash_attn.__version__ >= '2.7.0':
         attn2, *_ = _flash_attn_forward(
-            q[:, cu_seqlens_q[1]:],
-            k[:, cu_seqlens_kv[1]:],
-            v[:, cu_seqlens_kv[1]:],
+            q[:,cu_seqlens_q[1]:],
+            k[:,cu_seqlens_kv[1]:],
+            v[:,cu_seqlens_kv[1]:],
             dropout_p=0.0,
             softmax_scale=q.shape[-1] ** (-0.5),
             causal=False,
@@ -353,9 +344,9 @@ def parallel_attention(
         )
     else:
         attn2, *_ = _flash_attn_forward(
-            q[:, cu_seqlens_q[1]:],
-            k[:, cu_seqlens_kv[1]:],
-            v[:, cu_seqlens_kv[1]:],
+            q[:,cu_seqlens_q[1]:],
+            k[:,cu_seqlens_kv[1]:],
+            v[:,cu_seqlens_kv[1]:],
             dropout_p=0.0,
             softmax_scale=q.shape[-1] ** (-0.5),
             causal=False,
