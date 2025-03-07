@@ -562,6 +562,8 @@ class HYVideoDiffusionTransformer(ModelMixin, ConfigMixin):
         self.text_states_dim = args.text_states_dim
         self.text_states_dim_2 = args.text_states_dim_2
 
+        self.enable_teacache = True
+
         if hidden_size % heads_num != 0:
             raise ValueError(
                 f"Hidden size {hidden_size} must be divisible by heads_num {heads_num}"
