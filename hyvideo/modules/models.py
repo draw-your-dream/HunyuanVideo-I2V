@@ -203,10 +203,10 @@ class MMDoubleStreamBlock(nn.Module):
         
         # attention computation start
         if not self.hybrid_seq_parallel_attn:
+            qkv_list = [q, k, v]
+            del q, k, v
             attn = attention(
-                q,
-                k,
-                v,
+                qkv_list,
                 cu_seqlens_q=cu_seqlens_q,
                 cu_seqlens_kv=cu_seqlens_kv,
                 max_seqlen_q=max_seqlen_q,
